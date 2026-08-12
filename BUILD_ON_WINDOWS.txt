@@ -1,4 +1,4 @@
-TaobaoCoinAssistant v1.0 - Windows 构建说明
+TaobaoCoinAssistant v1.1 - Windows 构建说明
 
 推荐：用 Android Studio 打开本目录 TaobaoCoinAssistant，等待 Gradle Sync 完成，然后：
 Build > Build Bundle(s) / APK(s) > Build APK(s)

@@ -17,6 +17,11 @@ key.properties
 .cxx/
 captures/
 
+# Generated release artifacts
+app/release/
+*.apk
+*.dm
+
 # OS
 .DS_Store
 Thumbs.db

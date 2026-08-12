@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 8001);
         }
-        AppState.log("应用已打开。淘金币助手 v1.0 为纯 Shizuku + OCR，无需无障碍；首次使用请授权 Shizuku。");
+        AppState.log("应用已打开。淘金币助手 v1.1 为纯 Shizuku + OCR，无需无障碍；首次使用请授权 Shizuku。");
         handler.post(ticker);
     }
 
@@ -87,6 +87,14 @@ public class MainActivity extends Activity {
 
     private View buildUi() {
         int pad = dp(18);
+
+        // The entire settings/status page must be scrollable. On short screens or devices
+        // with a large display density, a fixed vertical LinearLayout can push the lower
+        // controls completely outside the visible area.
+        ScrollView pageScroll = new ScrollView(this);
+        pageScroll.setFillViewport(true);
+        pageScroll.setClipToPadding(false);
+        pageScroll.setBackgroundColor(0xFFF8F8F8);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -124,7 +132,7 @@ public class MainActivity extends Activity {
         sub.setPadding(0, dp(6), 0, 0);
         heroText.addView(sub);
 
-        TextView version = pill("v1.0", 0x33FFFFFF, 0xFFFFFFFF);
+        TextView version = pill("v1.1", 0x33FFFFFF, 0xFFFFFFFF);
         LinearLayout.LayoutParams verLp = new LinearLayout.LayoutParams(-2, -2);
         verLp.topMargin = dp(8);
         heroText.addView(version, verLp);
@@ -249,8 +257,11 @@ public class MainActivity extends Activity {
 
         logScroll = new ScrollView(this);
         logScroll.setBackground(cardBg(0xFFFFFFFF, 16, 0x11000000, 1));
-        LinearLayout.LayoutParams logLp = new LinearLayout.LayoutParams(-1, 0, 1);
+        // Keep the log independently scrollable, while the full page itself can also scroll.
+        // A fixed minimum-like height is more robust than weight=1 on short displays.
+        LinearLayout.LayoutParams logLp = new LinearLayout.LayoutParams(-1, dp(320));
         logLp.topMargin = dp(8);
+        logLp.bottomMargin = dp(18);
 
         logText = new TextView(this);
         logText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
@@ -260,7 +271,11 @@ public class MainActivity extends Activity {
         logScroll.addView(logText);
         root.addView(logScroll, logLp);
 
-        return root;
+        pageScroll.addView(root, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        return pageScroll;
     }
 
     private LinearLayout cardLayout() {

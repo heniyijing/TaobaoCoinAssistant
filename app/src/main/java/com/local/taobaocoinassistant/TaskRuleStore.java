@@ -43,7 +43,9 @@ public final class TaskRuleStore {
             "桌面",
             "回访",
             "爱心蛋",
-            "心蛋"
+            "心蛋",
+            "极速版",
+            "通知"
     ));
 
     public static final String DEFAULT_EXTERNAL = String.join("\n", Arrays.asList(

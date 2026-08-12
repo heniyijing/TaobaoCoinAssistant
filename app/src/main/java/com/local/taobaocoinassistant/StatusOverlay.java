@@ -3,6 +3,7 @@ package com.local.taobaocoinassistant;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Insets;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.provider.Settings;
@@ -10,6 +11,8 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.WindowInsets;
+import android.view.WindowMetrics;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -17,8 +20,9 @@ import android.widget.TextView;
  * Optional top status strip for the pure Shizuku build.
  *
  * Uses TYPE_APPLICATION_OVERLAY, so it requires the one-time Android "display over other apps"
- * permission only when the feature is enabled. Task OCR ignores the top 250px; search OCR crops the
- * top 140px, keeping this 30dp bar outside recognition ROIs on the target device.
+ * permission only when the feature is enabled. The overlay is positioned below the real system
+ * status-bar/display-cutout safe inset instead of using a hard-coded Y coordinate, so it remains
+ * visible and touchable across different resolutions, DPI values and notches.
  */
 public final class StatusOverlay {
     private final Context context;
@@ -86,7 +90,10 @@ public final class StatusOverlay {
                 PixelFormat.TRANSLUCENT
         );
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        lp.y = dp(2);
+        // FLAG_LAYOUT_IN_SCREEN uses physical screen coordinates, so offset the overlay by the
+        // actual system status-bar / cutout inset. This avoids placing the bar behind the clock,
+        // signal icons or a notch on devices with taller status bars.
+        lp.y = topSafeInset() + dp(4);
         if (Build.VERSION.SDK_INT >= 28) {
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
@@ -123,6 +130,36 @@ public final class StatusOverlay {
     }
 
     public boolean isAttached() { return attached; }
+
+    private int topSafeInset() {
+        int inset = 0;
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                WindowMetrics metrics = windowManager.getCurrentWindowMetrics();
+                WindowInsets windowInsets = metrics.getWindowInsets();
+                Insets safe = windowInsets.getInsetsIgnoringVisibility(
+                        WindowInsets.Type.statusBars() | WindowInsets.Type.displayCutout()
+                );
+                inset = Math.max(inset, safe.top);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        // ROM fallback. Some vendors do not expose meaningful WindowInsets to an application
+        // context used by TYPE_APPLICATION_OVERLAY.
+        if (inset <= 0) {
+            try {
+                int id = context.getResources().getIdentifier(
+                        "status_bar_height", "dimen", "android"
+                );
+                if (id > 0) inset = context.getResources().getDimensionPixelSize(id);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        return Math.max(0, inset);
+    }
 
     private int dp(int value) {
         return Math.round(value * context.getResources().getDisplayMetrics().density);

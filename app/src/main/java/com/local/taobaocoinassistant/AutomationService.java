@@ -62,6 +62,8 @@ public class AutomationService extends Service {
     private int lastDailySignY = -1;
     // “赚更多金币”几何兜底每次打开任务面板最多使用一次，避免弹窗已出现但 OCR 未刷新时重复点击背景。
     private boolean coinHomeGeometryFallbackUsed = false;
+    // v1.1: generic modal/ad obstruction recovery. Back is safer than tapping an unknown X.
+    private int popupDismissCount = 0;
 
     // 当新版 UC WebView 不暴露 EditText 时，Android shell 的 `input text` 对中文并不可靠。
     // 因此 OCR+Shizuku 兜底使用纯 ASCII 搜索词；只用于完成“搜一搜”任务，不改变任务筛选规则。
@@ -214,6 +216,7 @@ public class AutomationService extends Service {
         noChangeScrollCount = 0;
         scrollCount = 0;
         finalTopRecheckRounds = 0;
+        popupDismissCount = 0;
         taskRules = TaskRuleStore.load(this);
         AppState.log("━━━━━━━━━━ 新一轮执行 ━━━━━━━━━━");
         AppState.log("任务规则已加载：" + taskRules.summary());
@@ -277,6 +280,10 @@ public class AutomationService extends Service {
             }
 
             OcrEngine.Snapshot snap = ocr.captureTaskList();
+            if (dismissBlockingPopupIfPresent(snap, "任务列表")) {
+                sleep(900);
+                continue;
+            }
             String all = snap.allText();
             if (containsVerification(all)) {
                 AppState.log("检测到淘宝安全验证，本次停止；请手动处理，不自动绕过验证");
@@ -736,6 +743,11 @@ public class AutomationService extends Service {
                 continue;
             }
 
+            if (dismissBlockingPopupIfPresent(snap, "淘宝/淘金币首页")) {
+                sleep(850);
+                continue;
+            }
+
             if (taskPanelVisibleInSnapshot(snap)) {
                 AppState.log("OCR 已确认任务弹窗已经打开，不重复走首页导航");
                 return true;
@@ -804,6 +816,11 @@ public class AutomationService extends Service {
             first = ocr.captureNavigation();
         } catch (Throwable e) {
             AppState.log("淘金币首页快速 OCR 失败: " + e.getMessage());
+        }
+
+        if (first != null && dismissBlockingPopupIfPresent(first, "淘金币首页")) {
+            sleep(850);
+            try { first = ocr.captureNavigation(); } catch (Throwable ignored) {}
         }
 
         if (first != null && taskPanelVisibleInSnapshot(first)) {
@@ -925,6 +942,10 @@ public class AutomationService extends Service {
         OcrEngine.Snapshot snap = null;
         try {
             snap = ocr.captureNavigation();
+            if (dismissBlockingPopupIfPresent(snap, "淘金币首页")) {
+                sleep(800);
+                return false;
+            }
             int[] p = findMoreCoinsVisualPoint(snap);
             if (p != null) {
                 shellTap(p[0], p[1]);
@@ -1175,6 +1196,11 @@ public class AutomationService extends Service {
             } catch (Throwable e) {
                 AppState.log("任务面板 OCR 失败: " + e.getMessage());
                 sleep(420);
+                continue;
+            }
+
+            if (dismissBlockingPopupIfPresent(snap, "任务面板")) {
+                sleep(800);
                 continue;
             }
 
@@ -1622,6 +1648,75 @@ public class AutomationService extends Service {
         return false;
     }
 
+    /**
+     * v1.1 通用遮挡弹窗恢复。
+     *
+     * 不尝试维护“广告名称黑名单”，因为淘宝弹窗样式/文案变化非常频繁。
+     * 这里使用两类证据：
+     * 1) 高特异弹窗文案（组件、额外抵扣、出行、闪购、抵金等）；
+     * 2) 屏幕中部出现明显的单一 CTA，而背景仍能看到淘金币/任务页上下文。
+     *
+     * 命中后只按一次系统 Back，再由下一张真实截图验证页面是否恢复。
+     * Back 比点击未知位置的 X 更安全，可避免 X 位置变化时误触广告内容。
+     */
+    private boolean dismissBlockingPopupIfPresent(OcrEngine.Snapshot snap, String stage) {
+        if (snap == null || stopRequested) return false;
+        if (!TB.equals(currentPackage())) return false;
+
+        String all = normalizeOcr(snap.allText());
+        int score = 0;
+
+        // 高特异文案：这些内容通常只会出现在覆盖式促销/引导弹窗中。
+        String[] strong = new String[]{
+                "已尝试添加组件", "再次添加", "前往桌面", "添加失败",
+                "一键享受金币额外抵扣", "金币额外抵扣", "你加购的",
+                "出行玩乐", "订票订酒店", "闪购福利"
+        };
+        for (String k : strong) {
+            if (all.contains(normalizeOcr(k))) score += 2;
+        }
+        // 这些词在普通淘宝页面也可能出现，只作为弱证据，不能单独触发 Back。
+        String[] weak = new String[]{"淘宝闪购", "加抵金", "抵金", "额外抵", "去看看"};
+        for (String k : weak) {
+            if (all.contains(normalizeOcr(k))) score += 1;
+        }
+
+        // 背景仍像淘金币/任务页时，中间出现大 CTA 更像是“盖在原页面上的弹窗”。
+        boolean backgroundContext = looksLikeCoinHomeSnapshot(snap)
+                || taskPanelVisibleInSnapshot(snap)
+                || TaskParser.isTrustedTaskContext(snap.rows, snap.height);
+        boolean centeredCta = false;
+        for (OcrEngine.OcrRow row : snap.rows) {
+            String t = normalizeOcr(row.text);
+            if (t.isEmpty()) continue;
+            int cx = row.bounds.centerX();
+            int cy = row.bounds.centerY();
+            boolean inCenter = cx > snap.width * 0.22f && cx < snap.width * 0.78f
+                    && cy > snap.height * 0.32f && cy < snap.height * 0.82f;
+            if (!inCenter) continue;
+            boolean actionText = t.contains("去看看") || t.contains("前往") || t.contains("再次")
+                    || t.contains("立即") || t.contains("一键") || t.contains("添加")
+                    || t.contains("使用") || t.contains("查看") || t.contains("开启");
+            if (actionText && row.bounds.width() > snap.width * 0.18f) {
+                centeredCta = true;
+                break;
+            }
+        }
+        if (backgroundContext && centeredCta) score += 2;
+
+        if (score < 3) return false;
+        if (popupDismissCount >= 6) {
+            AppState.log("疑似遮挡弹窗仍反复出现，但已达到本轮自动关闭上限；交给页面恢复流程处理");
+            return false;
+        }
+
+        popupDismissCount++;
+        AppState.log("检测到疑似遮挡弹窗（" + stage + "，证据分=" + score + "），优先使用系统返回关闭 ("
+                + popupDismissCount + "/6)");
+        ShizukuShell.exec("input keyevent KEYCODE_BACK");
+        return true;
+    }
+
     private String normalizeOcr(String text) {
         if (text == null) return "";
         return text.replace('額', '额')
@@ -1696,45 +1791,58 @@ public class AutomationService extends Service {
         if (snap == null) return null;
         String n = normalizeOcr(needle);
 
-        // First use ML Kit's unmerged Element bounds. This is much more accurate for Taobao's
-        // shortcut grid where several labels share one horizontal OCR row.
+        // Prefer an exact/near-exact ML Kit Element first. On some phones ML Kit merges two or
+        // more shortcut labels into one Element (for example “领淘金币阿里拍卖”). Using the merged
+        // Element's center can then click the shortcut to the right, so a long Element is handled
+        // with substring-relative geometry instead of centerX().
         if (snap.elements != null) {
             for (OcrEngine.OcrRow element : snap.elements) {
                 String t = normalizeOcr(element.text);
+                if (!t.equals(n) && !(t.contains(n) && t.length() <= n.length() + 1)) continue;
+                int[] point = pointInsideMatchedText(element.bounds, t, n, snap.width, snap.height, preferRight);
+                if (point != null) return point;
+            }
+            for (OcrEngine.OcrRow element : snap.elements) {
+                String t = normalizeOcr(element.text);
                 if (!t.contains(n)) continue;
-                Rect b = element.bounds;
-                int x = preferRight
-                        ? Math.min(snap.width - 24, Math.max(b.right - 8, (int) (snap.width * 0.84f)))
-                        : b.centerX();
-                int y = b.centerY();
-                if (x > 0 && y > 0 && x < snap.width && y < snap.height) return new int[]{x, y};
+                int[] point = pointInsideMatchedText(element.bounds, t, n, snap.width, snap.height, preferRight);
+                if (point != null) return point;
             }
         }
 
         for (OcrEngine.OcrRow row : snap.rows) {
             String rowText = normalizeOcr(row.text);
-            int hit = rowText.indexOf(n);
-            if (hit < 0) continue;
-            Rect b = row.bounds;
-            int x;
-            if (preferRight) {
-                x = Math.min(snap.width - 24, Math.max(b.right - 8, (int) (snap.width * 0.84f)));
-            } else if (rowText.length() > n.length() + 2 && b.width() > snap.width * 0.28f) {
-                // ML Kit often merges a whole shortcut row such as
-                // “88VIP 天猫超市 领淘金币 红包签到 ...” into one OCR row. Clicking the row
-                // center can therefore hit the wrong shortcut. Estimate the target substring's
-                // horizontal position inside that merged row instead.
-                float charCenter = hit + n.length() * 0.5f;
-                float ratio = charCenter / Math.max(1f, rowText.length());
-                x = b.left + Math.round(b.width() * ratio);
-            } else {
-                x = b.centerX();
-            }
-            x = Math.max(24, Math.min(snap.width - 24, x));
-            int y = b.centerY();
-            if (x > 0 && y > 0 && x < snap.width && y < snap.height) return new int[]{x, y};
+            if (!rowText.contains(n)) continue;
+            int[] point = pointInsideMatchedText(row.bounds, rowText, n, snap.width, snap.height, preferRight);
+            if (point != null) return point;
         }
         return null;
+    }
+
+    private int[] pointInsideMatchedText(Rect b, String fullText, String needle,
+                                         int screenWidth, int screenHeight, boolean preferRight) {
+        if (b == null || fullText == null || needle == null || needle.isEmpty()) return null;
+        int hit = fullText.indexOf(needle);
+        if (hit < 0) return null;
+
+        int x;
+        if (preferRight) {
+            x = Math.min(screenWidth - 24, Math.max(b.right - 8, (int) (screenWidth * 0.84f)));
+        } else if (fullText.length() > needle.length() + 1) {
+            // Works for both merged Lines and merged Elements. Estimate where the target substring
+            // sits inside the OCR bounding box. This is especially important for home shortcuts:
+            // “领淘金币阿里拍卖红包签到” must click the first label, not the box center.
+            float charCenter = hit + needle.length() * 0.5f;
+            float ratio = charCenter / Math.max(1f, fullText.length());
+            x = b.left + Math.round(b.width() * ratio);
+        } else {
+            x = b.centerX();
+        }
+
+        x = Math.max(24, Math.min(screenWidth - 24, x));
+        int y = b.centerY();
+        if (x <= 0 || y <= 0 || x >= screenWidth || y >= screenHeight) return null;
+        return new int[]{x, y};
     }
 
     private String currentPackage() {
