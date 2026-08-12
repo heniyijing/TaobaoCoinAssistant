@@ -14,10 +14,34 @@ android {
         versionName '1.0'
     }
 
+    // 按 CPU 架构分别生成 APK
+    splits {
+        abi {
+            // 开启 ABI 拆分
+            enable true
+
+            // 清空默认 ABI 列表
+            reset()
+
+            // 生成这 4 种架构的 APK
+            include 'arm64-v8a',
+                    'armeabi-v7a',
+                    'x86',
+                    'x86_64'
+
+            // 不再额外生成包含全部架构的 50MB 万能包
+            universalApk false
+        }
+    }
+
     buildTypes {
         release {
+            // 暂时不动 R8，避免影响现在已经稳定的功能
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            proguardFiles getDefaultProguardFile(
+                    'proguard-android-optimize.txt'
+            ), 'proguard-rules.pro'
         }
     }
 
@@ -32,5 +56,6 @@ dependencies {
     implementation 'dev.rikka.shizuku:api:13.1.5'
     implementation 'dev.rikka.shizuku:provider:13.1.5'
     implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 }
