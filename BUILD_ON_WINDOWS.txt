@@ -1,0 +1,17 @@
+TaobaoCoinAssistant v1.0 - Windows 构建说明
+
+推荐：用 Android Studio 打开本目录 TaobaoCoinAssistant，等待 Gradle Sync 完成，然后：
+Build > Build Bundle(s) / APK(s) > Build APK(s)
+
+如果电脑已经单独安装 Gradle 8.13，也可以在项目根目录执行：
+gradle :app:assembleDebug
+
+Debug APK 默认位于：
+app\\build\\outputs\\apk\\debug\\app-debug.apk
+
+运行权限：
+- 必需：Shizuku 正在运行，并授权本 App。
+- 不需要：Android 无障碍服务。
+- 可选：如果启用“顶部悬浮状态条”，首次需要授予“显示在其他应用上层”权限。
+
+首次测试建议保持屏幕亮起并观察实际点击；遇到淘宝安全验证时脚本会停止。
