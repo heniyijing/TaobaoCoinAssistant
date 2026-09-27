@@ -182,6 +182,15 @@ public final class HumanMotion {
      */
     public static Point[] buildSwipe(float x1, float y1, float x2, float y2,
                                      float targetWidth, int profile, Random rnd) {
+        return buildSwipe(x1, y1, x2, y2, targetWidth, profile, rnd, 0L);
+    }
+
+    /**
+     * @param forcedDurationMs 大于 0 时用指定时长（慢速浏览用），不再走 Fitts 模型
+     */
+    public static Point[] buildSwipe(float x1, float y1, float x2, float y2,
+                                     float targetWidth, int profile, Random rnd,
+                                     long forcedDurationMs) {
         driftBias(rnd, System.currentTimeMillis());
 
         float dx = x2 - x1;
@@ -212,6 +221,8 @@ public final class HumanMotion {
 
         long total = fittsDurationMs(dx, dy, targetWidth, rnd);
         if (profile == PROFILE_FLING) total = (long) (total * (0.74d + 0.16d * rnd.nextDouble()));
+        // 慢速浏览：指定时长优先（手指慢慢划过屏幕，读内容的样子）
+        if (forcedDurationMs > 0L) total = forcedDurationMs;
         total = Math.max(160L, total);
 
         // 震颤参数：8~12Hz 主频 + 二次谐波，双轴相位随机
@@ -319,15 +330,20 @@ public final class HumanMotion {
             return new GestureStats(jitter, 0f, 0f, 0f, dur, pts.length, downX, downY);
         }
 
-        double acc = 0;
-        int cnt = 0;
-        for (int i = 2; i < pts.length; i++) {
-            double hx = pts[i].x - 2 * pts[i - 1].x + pts[i - 2].x;
-            double hy = pts[i].y - 2 * pts[i - 1].y + pts[i - 2].y;
-            acc += Math.hypot(hx, hy);
-            cnt++;
+        // 震颤：点相对"跨 ±W 点基线"的偏离，衡量高频抖动。
+        // 不用二阶差分也不用相邻点残差——它们的响应系数太小（8ms 采样、10Hz 震颤时只有 0.12），
+        // 数值会被真实加速度主导，导致 1~2 秒的慢速滑动被误判成"没有震颤"。
+        // 跨 ±3 点（48ms）时对 8~12Hz 的响应约 0.94，与滑动速度基本无关。
+        int window = Math.min(3, Math.max(1, (pts.length - 1) / 4));
+        double devSum = 0;
+        int devCount = 0;
+        for (int i = window; i < pts.length - window; i++) {
+            double mx = (pts[i - window].x + pts[i + window].x) * 0.5d;
+            double my = (pts[i - window].y + pts[i + window].y) * 0.5d;
+            devSum += Math.hypot(pts[i].x - mx, pts[i].y - my);
+            devCount++;
         }
-        float tremor = cnt > 0 ? (float) (acc / cnt) : 0f;
+        float tremor = devCount > 0 ? (float) (devSum / devCount) : 0f;
 
         float x1 = pts[0].x;
         float y1 = pts[0].y;
