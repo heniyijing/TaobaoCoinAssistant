@@ -532,15 +532,8 @@ public class AutomationService extends Service {
             int endX = randomBetween(Math.max(1, startX - Math.max(20, width / 14)), Math.max(2, startX));
             int endYUpper = Math.max(220, startY - 300);
             int endY = randomBetween(200, endYUpper);
-            int verticalDistance = Math.abs(startY - endY);
-            int duration = verticalDistance > 500
-                    ? randomBetween(400, 1000)
-                    : randomBetween(200, 500);
 
-            ShizukuShell.Result r = ShizukuShell.exec(
-                    "input swipe " + startX + " " + startY + " " + endX + " " + endY + " " + duration
-            );
-            if (!r.ok()) AppState.log("浏览滑动失败: " + r.output);
+            humanSwipe(startX, startY, endX, endY, (int) (width * 0.6f), true);
             sleep(800 + random.nextInt(1201));
         }
     }
@@ -1583,10 +1576,7 @@ public class AutomationService extends Service {
         int x = Math.max(120, (int) (width * 0.50f));
         int y1 = (int) (height * 0.30f);
         int y2 = (int) (height * 0.82f);
-        ShizukuShell.Result r = ShizukuShell.exec(
-                "input swipe " + x + " " + y1 + " " + x + " " + y2 + " 650"
-        );
-        if (!r.ok()) throw new IllegalStateException("返回任务顶部失败: " + r.output);
+        humanSwipe(x, y1, x, y2, (int) (width * 0.6f), true);
     }
 
     private String compactPanelSignature(OcrEngine.Snapshot snap) {
@@ -1596,17 +1586,53 @@ public class AutomationService extends Service {
         return all;
     }
 
+    /** 逐点注入不可用时的提示只打一次，避免刷屏。 */
+    private boolean injectFallbackLogged = false;
+
+    private void noteInjectFallback() {
+        if (injectFallbackLogged) return;
+        injectFallbackLogged = true;
+        AppState.log("逐点注入不可用，已回退 input 命令（轨迹仿真降级）");
+    }
+
+    /**
+     * 人类化点击：落点高斯抖动（含慢漂移偏置）+ 按压期亚像素游走 + 逐点注入。
+     * halfW/halfH 是按钮可容错的半宽半高，抖动会被限制在里面。
+     */
+    private void humanTap(int x, int y, int halfW, int halfH) throws Exception {
+        sleep(HumanMotion.microDelayMs(150, random));
+        boolean ok = ShizukuShell.injectGesture(
+                CoinUserService.GESTURE_TAP, x, y, x, y, halfW, halfH, random.nextLong());
+        if (!ok) {
+            noteInjectFallback();
+            ShizukuShell.Result r = ShizukuShell.exec("input tap " + x + " " + y);
+            if (!r.ok()) throw new IllegalStateException("input tap 失败: " + r.output);
+        }
+        sleep(HumanMotion.microDelayMs(220, random));
+    }
+
+    /** 人类化滑动：贝塞尔弧线 + Fitts/fling 速度剖面 + 8~12Hz 震颤，逐点注入。 */
+    private void humanSwipe(int x1, int y1, int x2, int y2, int targetW, boolean fling) throws Exception {
+        boolean ok = ShizukuShell.injectGesture(
+                fling ? CoinUserService.GESTURE_SWIPE_FLING : CoinUserService.GESTURE_SWIPE_FITTS,
+                x1, y1, x2, y2, targetW * 0.5f, targetW * 0.5f, random.nextLong());
+        if (ok) return;
+        noteInjectFallback();
+        ShizukuShell.Result r = ShizukuShell.exec(
+                "input swipe " + x1 + " " + y1 + " " + x2 + " " + y2 + " " + (fling ? 480 : 700));
+        if (!r.ok()) throw new IllegalStateException("滑动失败: " + r.output);
+    }
+
     private void shellTap(int x, int y) throws Exception {
-        ShizukuShell.Result r = ShizukuShell.exec("input tap " + x + " " + y);
-        if (!r.ok()) throw new IllegalStateException("input tap 失败: " + r.output);
+        humanTap(x, y, 26, 14);
     }
 
     private void shellSwipeList(int width, int height) throws Exception {
         int x = Math.max(120, (int) (width * 0.278f));
         int y1 = (int) (height * 0.844f);
         int y2 = (int) (height * 0.281f);
-        ShizukuShell.Result r = ShizukuShell.exec("input swipe " + x + " " + y1 + " " + x + " " + y2 + " 1000");
-        if (!r.ok()) throw new IllegalStateException("列表滚动失败: " + r.output);
+        humanSwipe(x + randomBetween(-16, 16), y1,
+                x + randomBetween(-10, 10), y2, (int) (width * 0.6f), true);
     }
 
     private String signature(List<TaskParser.TaskItem> tasks) {
@@ -1891,8 +1917,13 @@ public class AutomationService extends Service {
         if (!r.ok()) throw new IllegalStateException("系统后退失败: " + r.output);
     }
 
+    /**
+     * 所有等待都走非均匀采样（对数正态 + 5% 重尾），
+     * 避免「相邻两次动作间隔完全相同」这种最容易暴露的机器特征。
+     */
     private void sleep(long ms) throws InterruptedException {
-        long end = SystemClock.elapsedRealtime() + ms;
+        long target = HumanMotion.delayMs(ms, random);
+        long end = SystemClock.elapsedRealtime() + target;
         while (!stopRequested && SystemClock.elapsedRealtime() < end) {
             Thread.sleep(Math.min(250, Math.max(1, end - SystemClock.elapsedRealtime())));
         }

@@ -66,6 +66,8 @@ dependencies {
     implementation 'dev.rikka.shizuku:api:13.1.5'
     implementation 'dev.rikka.shizuku:provider:13.1.5'
     implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+    // 兜底：shell 侧反射 InputManager.injectInputEvent 被 hidden API 拦住时用它解禁
+    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:6.1'
 
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 }

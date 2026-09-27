@@ -168,6 +168,42 @@ public final class ShizukuShell {
         }
     }
 
+    /**
+     * 逐点注入一次手势。返回 true 表示走的是 injectInputEvent，false 表示需要调用方回退到 input 命令。
+     */
+    public static boolean injectGesture(int type, float x1, float y1, float x2, float y2,
+                                        float halfW, float halfH, long seed) {
+        if (!hasPermission()) return false;
+        IBinder binder = awaitService(6000);
+        if (binder == null) return false;
+
+        Parcel data = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        try {
+            data.writeInt(type);
+            data.writeFloat(x1);
+            data.writeFloat(y1);
+            data.writeFloat(x2);
+            data.writeFloat(y2);
+            data.writeFloat(halfW);
+            data.writeFloat(halfH);
+            data.writeLong(seed);
+            if (!binder.transact(CoinUserService.TRANSACTION_INJECT, data, reply, 0)) return false;
+            reply.readException();
+            return reply.readInt() == 1;
+        } catch (Throwable e) {
+            // 与 exec() 保持一致：transact 抛异常大概率意味着 binder 已死，清缓存让下次重连。
+            synchronized (LOCK) {
+                userServiceBinder = null;
+                binding = false;
+            }
+            return false;
+        } finally {
+            data.recycle();
+            reply.recycle();
+        }
+    }
+
     public static final class Result {
         public final int code;
         public final String output;

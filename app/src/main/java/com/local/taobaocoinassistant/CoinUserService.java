@@ -11,6 +11,7 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Random;
 
 /**
  * Shizuku UserService running as shell (UID 2000 on non-root Shizuku).
@@ -26,7 +27,12 @@ import java.nio.charset.StandardCharsets;
 public final class CoinUserService extends Binder {
     public static final int TRANSACTION_EXEC = IBinder.FIRST_CALL_TRANSACTION;
     public static final int TRANSACTION_SCREENSHOT = IBinder.FIRST_CALL_TRANSACTION + 1;
+    public static final int TRANSACTION_INJECT = IBinder.FIRST_CALL_TRANSACTION + 2;
     private static final int TRANSACTION_DESTROY = 16777115;
+
+    public static final int GESTURE_TAP = 0;
+    public static final int GESTURE_SWIPE_FITTS = 1;
+    public static final int GESTURE_SWIPE_FLING = 2;
 
     public CoinUserService() {}
 
@@ -67,6 +73,41 @@ public final class CoinUserService extends Binder {
             } catch (Throwable ignored) {
                 try { writeSide.close(); } catch (Throwable ignoredClose) {}
             }
+            return true;
+        }
+
+        if (code == TRANSACTION_INJECT) {
+            int type = data.readInt();
+            float x1 = data.readFloat();
+            float y1 = data.readFloat();
+            float x2 = data.readFloat();
+            float y2 = data.readFloat();
+            float halfW = data.readFloat();
+            float halfH = data.readFloat();
+            long seed = data.readLong();
+
+            String detail;
+            boolean ok;
+            try {
+                HumanMotion.Point[] points;
+                if (type == GESTURE_TAP) {
+                    points = HumanMotion.buildTap(x1, y1, halfW, halfH, new Random(seed));
+                } else {
+                    points = HumanMotion.buildSwipe(x1, y1, x2, y2, Math.max(24f, halfW * 2f),
+                            type == GESTURE_SWIPE_FLING
+                                    ? HumanMotion.PROFILE_FLING : HumanMotion.PROFILE_FITTS,
+                            new Random(seed));
+                }
+                ok = MotionInjector.inject(points, type == GESTURE_TAP);
+                detail = ok ? "ok" : MotionInjector.lastError();
+            } catch (Throwable e) {
+                ok = false;
+                detail = e.getClass().getSimpleName() + ": " + e.getMessage();
+            }
+
+            reply.writeNoException();
+            reply.writeInt(ok ? 1 : 0);
+            reply.writeString(detail == null ? "" : detail);
             return true;
         }
 
