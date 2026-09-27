@@ -232,13 +232,15 @@ public final class TaskParser {
 
     public static boolean external(TaskItem t, TaskRuleStore.Rules rules) {
         if (forcedBrowse(t, rules)) return false;
-        return containsAny(t.name, rules.external);
+        // 和黑名单一样走保守模糊匹配：OCR 会把"金豆夺宝"识成"金豆寺宝"，
+        // 严格包含匹配会让本该跨应用的任务被误判成普通浏览。
+        return containsAnyFuzzyForBlacklist(t.name, rules.external);
     }
 
     public static boolean isSearch(TaskItem t, TaskRuleStore.Rules rules) {
         if (forcedBrowse(t, rules)) return false;
         if (external(t, rules)) return false;
-        return containsAny(t.name, rules.search);
+        return containsAnyFuzzyForBlacklist(t.name, rules.search);
     }
 
     public static boolean forcedBrowse(TaskItem t, TaskRuleStore.Rules rules) {
