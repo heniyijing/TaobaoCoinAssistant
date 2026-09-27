@@ -39,7 +39,10 @@ jobs:
       - name: Build debug APKs
         run: gradle :app:assembleDebug
 
+      - name: List built APKs
+        run: ls -l app/build/outputs/apk/debug/
+
       - uses: actions/upload-artifact@v4
         with:
-          name: TaobaoCoinAssistant-debug-apks
+          name: TaobaoCoinAssistant-debug-apk
           path: app/build/outputs/apk/debug/*.apk
