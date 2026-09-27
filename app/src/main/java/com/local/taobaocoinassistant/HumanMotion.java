@@ -1,5 +1,6 @@
 package com.local.taobaocoinassistant;
 
+import java.util.Locale;
 import java.util.Random;
 
 /**
@@ -250,5 +251,106 @@ public final class HumanMotion {
     /** 终点是否需要一个抬手前的静止段（手指松开前会短暂贴住屏幕）。 */
     public static long releaseDelayMs(Random rnd) {
         return 18L + (long) (rnd.nextDouble() * 42d);
+    }
+
+    // ------------------------------------------------------------------
+    // 手势统计：给上层的拟人度自检提供客观指标
+    // ------------------------------------------------------------------
+
+    public static final class GestureStats {
+        public final float jitterPx;    // 落点/起手点相对目标中心的偏移
+        public final float tremorPx;    // 高频分量（震颤）强度，二阶差分均值
+        public final float bowRatio;    // 轨迹最大偏离弦长 / 弦长
+        public final float peakPos;     // 速度峰值所在的归一化位置 0~1
+        public final long durationMs;
+        public final int points;
+        /** 实际按下坐标（含抖动），自检判断“是否每次都点在同一像素”要用它，不能用按钮中心。 */
+        public final float downX;
+        public final float downY;
+
+        GestureStats(float jitterPx, float tremorPx, float bowRatio, float peakPos,
+                     long durationMs, int points, float downX, float downY) {
+            this.jitterPx = jitterPx;
+            this.tremorPx = tremorPx;
+            this.bowRatio = bowRatio;
+            this.peakPos = peakPos;
+            this.durationMs = durationMs;
+            this.points = points;
+            this.downX = downX;
+            this.downY = downY;
+        }
+
+        public String encode() {
+            return String.format(Locale.US, "%.2f,%.3f,%.5f,%.3f,%d,%d,%.2f,%.2f",
+                    jitterPx, tremorPx, bowRatio, peakPos, durationMs, points, downX, downY);
+        }
+
+        public static GestureStats decode(String s) {
+            if (s == null || s.isEmpty()) return null;
+            String[] p = s.split(",");
+            if (p.length < 8) return null;
+            try {
+                return new GestureStats(Float.parseFloat(p[0]), Float.parseFloat(p[1]),
+                        Float.parseFloat(p[2]), Float.parseFloat(p[3]),
+                        Long.parseLong(p[4]), Integer.parseInt(p[5]),
+                        Float.parseFloat(p[6]), Float.parseFloat(p[7]));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * 对一条轨迹做客观测量。
+     *
+     * @param targetX,targetY 点击时传按钮中心；滑动时传起点
+     */
+    public static GestureStats stats(Point[] pts, float targetX, float targetY, boolean isTap) {
+        if (pts == null || pts.length == 0) return null;
+        float jitter = (float) Math.hypot(pts[0].x - targetX, pts[0].y - targetY);
+        float downX = pts[0].x;
+        float downY = pts[0].y;
+        long dur = pts[pts.length - 1].tMs;
+        if (isTap) {
+            return new GestureStats(jitter, 0f, 0f, 0f, dur, pts.length, downX, downY);
+        }
+
+        double acc = 0;
+        int cnt = 0;
+        for (int i = 2; i < pts.length; i++) {
+            double hx = pts[i].x - 2 * pts[i - 1].x + pts[i - 2].x;
+            double hy = pts[i].y - 2 * pts[i - 1].y + pts[i - 2].y;
+            acc += Math.hypot(hx, hy);
+            cnt++;
+        }
+        float tremor = cnt > 0 ? (float) (acc / cnt) : 0f;
+
+        float x1 = pts[0].x;
+        float y1 = pts[0].y;
+        Point last = pts[pts.length - 1];
+        double chord = Math.hypot(last.x - x1, last.y - y1);
+        float bow = 0f;
+        if (chord > 1.0) {
+            double maxDev = 0;
+            for (Point p : pts) {
+                double d = Math.abs((last.x - x1) * (y1 - p.y) - (last.y - y1) * (x1 - p.x)) / chord;
+                if (d > maxDev) maxDev = d;
+            }
+            bow = (float) (maxDev / chord);
+        }
+
+        int peak = 0;
+        double maxV = -1;
+        for (int i = 1; i < pts.length; i++) {
+            double dt = Math.max(1, pts[i].tMs - pts[i - 1].tMs);
+            double d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+            double v = d / dt * 1000.0;
+            if (v > maxV) {
+                maxV = v;
+                peak = i;
+            }
+        }
+        float peakPos = pts.length > 1 ? (float) peak / (pts.length - 1) : 0f;
+        return new GestureStats(jitter, tremor, bow, peakPos, dur, pts.length, downX, downY);
     }
 }
