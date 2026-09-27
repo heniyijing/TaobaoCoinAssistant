@@ -362,7 +362,7 @@ public class AutomationService extends Service {
             List<TaskParser.TaskItem> ordered = new ArrayList<>(tasks);
             ordered.sort(Comparator.comparingInt(TaskParser::priority).thenComparingInt(t -> t.y));
 
-            TaskParser.TaskItem chosen = null;
+            List<TaskParser.TaskItem> candidates = new ArrayList<>();
             for (TaskParser.TaskItem t : ordered) {
                 AppState.log("候选: " + t.name);
                 if (TaskParser.skip(t, taskRules)) {
@@ -373,14 +373,25 @@ public class AutomationService extends Service {
                     AppState.log("已尝试过多次，跳过: " + t.name);
                     continue;
                 }
-                chosen = t;
-                break;
+                candidates.add(t);
             }
+
+            // 不再固定执行列表里第一个：总是在前 3 个候选里随机挑一个。
+            // 顺序大致保留（优先级高的仍更容易被选中），但不再是从上到下一成不变。
+            TaskParser.TaskItem chosen = candidates.isEmpty() ? null
+                    : candidates.get(random.nextInt(Math.min(3, candidates.size())));
+            if (chosen != null) AppState.log("本轮选中: " + chosen.name);
 
             if (chosen != null) {
                 noChangeScrollCount = 0;
                 scrollCount = 0;
                 executeTask(chosen, snap.width, snap.height);
+                // 每完成几个任务停一下：人的节奏不会一直匀速推进。
+                if (!stopRequested && executedCount % 3 == 0) {
+                    long rest = 3000L + random.nextInt(9000);
+                    AppState.log("随机停顿约 " + (rest / 1000) + " 秒");
+                    sleep(rest);
+                }
                 continue;
             }
 
@@ -511,18 +522,25 @@ public class AutomationService extends Service {
     }
 
     private void browseCurrentTask(int width, int height, boolean external) throws Exception {
-        final long durationMs = 22_000L;
+        // 浏览时长随机化：固定 22 秒是最容易被识别出来的行为特征之一。
+        final long durationMs = 18_000L + random.nextInt(17_000);   // 18~34 秒
         final long startedAt = SystemClock.elapsedRealtime();
         long lastDialogCheckAt = 0L;
 
-        AppState.log(external ? "跨应用任务：等待约 22 秒，不在外部 App 内主动滑动" : "普通浏览任务：按最终脚本逻辑浏览约 22 秒");
+        AppState.log(external
+                ? "跨应用任务：等待约 " + (durationMs / 1000) + " 秒，不在外部 App 内主动滑动"
+                : "普通浏览任务：浏览约 " + (durationMs / 1000) + " 秒");
 
         while (!stopRequested && SystemClock.elapsedRealtime() - startedAt < durationMs) {
-            // 纯 OCR 模式：每隔约 3 秒检查一次“浏览器打开”系统弹窗。
             long now = SystemClock.elapsedRealtime();
             if (now - lastDialogCheckAt >= 3000L) {
                 lastDialogCheckAt = now;
                 if (cancelBrowserOpenDialogIfPresent()) break;
+                // 跨应用任务会弹“是否打开支付宝”这类系统确认框，不点掉会一直停在确认页。
+                if (external && confirmExternalLaunchIfPresent()) {
+                    sleep(1200);
+                    continue;
+                }
             }
 
             ForegroundState fg = currentForeground();
@@ -532,11 +550,24 @@ public class AutomationService extends Service {
                 continue;
             }
 
-            int startX = randomBetween(Math.max(1, width / 6), Math.max(2, width / 2));
-            int startY = randomBetween(Math.max(1, height / 2), Math.max(2, height - height / 4));
-            int endX = randomBetween(Math.max(1, startX - Math.max(20, width / 14)), Math.max(2, startX));
-            int endYUpper = Math.max(220, startY - 300);
-            int endY = randomBetween(200, endYUpper);
+            // 方向也随机：多数向上（正常往下看内容），偶尔向下回看，像真人来回翻。
+            boolean upward = random.nextDouble() < 0.7d;
+            int startX = randomBetween(Math.max(1, width / 5), Math.max(2, width * 3 / 5));
+            int endX = Math.max(1, Math.min(width - 1,
+                    startX + randomBetween(-Math.max(20, width / 10), Math.max(20, width / 10))));
+
+            int startY;
+            int endY;
+            if (upward) {
+                startY = randomBetween(Math.max(1, height / 2), Math.max(2, height - height / 4));
+                int upper = Math.max(220, startY - 300);
+                endY = randomBetween(200, upper);
+            } else {
+                // 向下回看：幅度小一些
+                startY = randomBetween(200, Math.max(220, height / 3));
+                int lower = Math.max(startY + 260, Math.min(height - 200, startY + 420));
+                endY = Math.min(height - 120, lower);
+            }
 
             humanSwipe(startX, startY, endX, endY, (int) (width * 0.6f), true);
             sleep(800 + random.nextInt(1201));
@@ -1651,11 +1682,15 @@ public class AutomationService extends Service {
     }
 
     private void shellSwipeList(int width, int height) throws Exception {
-        int x = Math.max(120, (int) (width * 0.278f));
-        int y1 = (int) (height * 0.844f);
-        int y2 = (int) (height * 0.281f);
-        humanSwipe(x + randomBetween(-16, 16), y1,
-                x + randomBetween(-10, 10), y2, (int) (width * 0.6f), true);
+        // 起点/终点整段随机，别再固定 x=0.278w、y=0.844h→0.281h（那个位置太"整齐"了）。
+        int x = randomBetween(Math.max(80, (int) (width * 0.18f)), Math.max(90, (int) (width * 0.46f)));
+        int y1 = randomBetween((int) (height * 0.70f), (int) (height * 0.90f));
+        int y2 = randomBetween((int) (height * 0.16f), (int) (height * 0.40f));
+        if (y1 - y2 < height * 0.25f) {
+            y2 = Math.max((int) (height * 0.12f), y1 - (int) (height * 0.30f));
+        }
+        humanSwipe(x + randomBetween(-20, 20), y1, x + randomBetween(-20, 20), y2,
+                (int) (width * 0.6f), true);
     }
 
     private String signature(List<TaskParser.TaskItem> tasks) {
@@ -1960,6 +1995,36 @@ public class AutomationService extends Service {
                 Rect r = row.bounds;
                 shellTap(r.centerX(), r.centerY());
                 AppState.log("OCR 检测到‘浏览器打开’弹窗，已点击取消");
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    /**
+     * 跨应用任务的「是否打开支付宝」系统跳转确认框。
+     *
+     * 不点掉就会一直停在确认页，之前只能人工点。这里只对跨应用任务生效，
+     * 并要求命中的是独占一行的短文本按钮，避免误点页面正文里出现的"打开"字样。
+     */
+    private boolean confirmExternalLaunchIfPresent() {
+        try {
+            OcrEngine.Snapshot snap = ocr.capture();
+            String all = normalizeOcr(snap.allText());
+            if (all.contains("浏览器打开")) return false;   // 归 cancelBrowserOpenDialogIfPresent 处理
+            if (!all.contains("打开") && !all.contains("允许")) return false;
+
+            for (OcrEngine.OcrRow row : snap.rows) {
+                String t = normalizeOcr(row.text);
+                if (t.isEmpty() || t.length() > 8) continue;
+                boolean isLaunchButton = t.equals("立即打开") || t.equals("打开") || t.equals("允许")
+                        || t.equals("继续") || t.equals("确定") || t.startsWith("打开支付宝")
+                        || t.startsWith("打开应用");
+                if (!isLaunchButton) continue;
+                // 按钮不会占半屏宽，太宽的多半是正文
+                if (row.bounds.width() > snap.width * 0.42f) continue;
+                shellTap(row.bounds.centerX(), row.bounds.centerY());
+                AppState.log("跨应用跳转确认框：已点击「" + t + "」");
                 return true;
             }
         } catch (Throwable ignored) {}
