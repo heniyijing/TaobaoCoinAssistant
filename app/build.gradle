@@ -3,7 +3,7 @@ plugins {
 }
 
 // 产物文件名要用版本号，这里统一定义，defaultConfig 和重命名共用同一份值。
-def appVersionName = '1.2.1'
+def appVersionName = '1.2.2'
 
 android {
     namespace 'com.local.taobaocoinassistant'
@@ -13,7 +13,7 @@ android {
         applicationId 'com.local.taobaocoinassistant'
         minSdk 30
         targetSdk 36
-        versionCode 107
+        versionCode 108
         versionName appVersionName
     }
 
