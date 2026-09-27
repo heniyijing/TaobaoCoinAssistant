@@ -196,7 +196,11 @@ public final class HumanMotion {
         // 垂直方向上的弧度：人的滑动不会是直线
         float nx = dist == 0 ? 0 : -dy / dist;
         float ny = dist == 0 ? 0 : dx / dist;
-        float bow = dist * (0.018f + rnd.nextFloat() * 0.05f);
+        // 垂直方向上的弧度：人的滑动不会是直线。范围放宽到 1%~12%，
+        // 另有约 1/10 的概率几乎是直线（人也会随手一划）。
+        float bowScale = 0.010f + rnd.nextFloat() * 0.11f;
+        if (rnd.nextFloat() < 0.10f) bowScale *= 0.18f;
+        float bow = dist * bowScale;
         if (rnd.nextBoolean()) bow = -bow;
 
         float c1x = sx + dx * 0.28f + nx * bow;
