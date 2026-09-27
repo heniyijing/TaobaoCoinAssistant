@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 8001);
         }
-        AppState.log("应用已打开。淘金币助手 v1.2 为纯 Shizuku + OCR，无需无障碍；首次使用请授权 Shizuku。");
+        AppState.log("应用已打开。淘金币助手 v1.2.2 为纯 Shizuku + OCR，无需无障碍；首次使用请授权 Shizuku。");
         MotionAudit.setEnabled(AuditSettings.isEnabled(this));
         handler.post(ticker);
     }
