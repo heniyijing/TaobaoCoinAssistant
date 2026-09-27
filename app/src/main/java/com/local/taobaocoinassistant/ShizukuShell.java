@@ -20,6 +20,13 @@ public final class ShizukuShell {
     private static volatile IBinder userServiceBinder;
     private static volatile boolean binding;
 
+    /**
+     * 注意：Shizuku 按 version 决定是否复用已启动的 UserService 进程。
+     * **只要改了 CoinUserService / MotionInjector 的代码，就必须把这个数字 +1**，
+     * 否则手机上跑的还是旧进程里的旧代码（表现为"改了没生效"）。
+     */
+    private static final int USER_SERVICE_VERSION = 4;
+
     private static final Shizuku.UserServiceArgs USER_SERVICE_ARGS =
             new Shizuku.UserServiceArgs(new ComponentName(
                     "com.local.taobaocoinassistant",
@@ -27,7 +34,7 @@ public final class ShizukuShell {
                     .daemon(true)
                     .processNameSuffix("coin_shell")
                     .debuggable(false)
-                    .version(3);
+                    .version(USER_SERVICE_VERSION);
 
     private static final ServiceConnection CONNECTION = new ServiceConnection() {
         @Override
