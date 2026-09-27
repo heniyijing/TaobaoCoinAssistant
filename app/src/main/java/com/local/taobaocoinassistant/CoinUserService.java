@@ -85,6 +85,7 @@ public final class CoinUserService extends Binder {
             float halfW = data.readFloat();
             float halfH = data.readFloat();
             long seed = data.readLong();
+            long forcedDurationMs = data.readLong();
 
             String detail;
             String statsEncoded = "";
@@ -98,7 +99,7 @@ public final class CoinUserService extends Binder {
                     points = HumanMotion.buildSwipe(x1, y1, x2, y2, Math.max(24f, halfW * 2f),
                             type == GESTURE_SWIPE_FLING
                                     ? HumanMotion.PROFILE_FLING : HumanMotion.PROFILE_FITTS,
-                            new Random(seed));
+                            new Random(seed), forcedDurationMs);
                 }
                 HumanMotion.GestureStats st =
                         HumanMotion.stats(points, isTap ? x1 : x1, isTap ? y1 : y1, isTap);
