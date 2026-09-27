@@ -64,6 +64,8 @@ public class AutomationService extends Service {
     private boolean coinHomeGeometryFallbackUsed = false;
     // v1.1: generic modal/ad obstruction recovery. Back is safer than tapping an unknown X.
     private int popupDismissCount = 0;
+    /** 任务面板刚确认打开的时间戳；这段时间内不做弹窗判定，避免把面板自己当成弹窗。 */
+    private long lastPanelOpenedAt = 0L;
 
     // 当新版 UC WebView 不暴露 EditText 时，Android shell 的 `input text` 对中文并不可靠。
     // 因此 OCR+Shizuku 兜底使用纯 ASCII 搜索词；只用于完成“搜一搜”任务，不改变任务筛选规则。
@@ -1712,6 +1714,14 @@ public class AutomationService extends Service {
 
         String all = normalizeOcr(snap.allText());
         int score = 0;
+        int strongHits = 0;
+
+        // 任务面板刚打开的一小段时间内，页面还在渲染，此时任何判定都不可靠。
+        // 之前就是在这里把正常任务面板误判成遮挡弹窗，Back 把面板关掉，导致反复重进。
+        if (lastPanelOpenedAt != 0L
+                && SystemClock.elapsedRealtime() - lastPanelOpenedAt < 2500L) {
+            return false;
+        }
 
         // 高特异文案：这些内容通常只会出现在覆盖式促销/引导弹窗中。
         String[] strong = new String[]{
@@ -1720,7 +1730,10 @@ public class AutomationService extends Service {
                 "出行玩乐", "订票订酒店", "闪购福利"
         };
         for (String k : strong) {
-            if (all.contains(normalizeOcr(k))) score += 2;
+            if (all.contains(normalizeOcr(k))) {
+                score += 2;
+                strongHits++;
+            }
         }
         // 这些词在普通淘宝页面也可能出现，只作为弱证据，不能单独触发 Back。
         String[] weak = new String[]{"淘宝闪购", "加抵金", "抵金", "额外抵", "去看看"};
@@ -1733,6 +1746,7 @@ public class AutomationService extends Service {
                 || taskPanelVisibleInSnapshot(snap)
                 || TaskParser.isTrustedTaskContext(snap.rows, snap.height);
         boolean centeredCta = false;
+        boolean wideCta = false;
         for (OcrEngine.OcrRow row : snap.rows) {
             String t = normalizeOcr(row.text);
             if (t.isEmpty()) continue;
@@ -1744,14 +1758,19 @@ public class AutomationService extends Service {
             boolean actionText = t.contains("去看看") || t.contains("前往") || t.contains("再次")
                     || t.contains("立即") || t.contains("一键") || t.contains("添加")
                     || t.contains("使用") || t.contains("查看") || t.contains("开启");
-            if (actionText && row.bounds.width() > snap.width * 0.18f) {
+            // 任务面板里本来就有一堆等宽的“去完成/领取”按钮，0.18 屏宽会把面板自己算成弹窗。
+            // 提高到 0.35；只有超过 0.45 才认为是真正覆盖式弹窗的大 CTA。
+            if (actionText && row.bounds.width() > snap.width * 0.35f) {
                 centeredCta = true;
+                if (row.bounds.width() > snap.width * 0.45f) wideCta = true;
                 break;
             }
         }
         if (backgroundContext && centeredCta) score += 2;
 
         if (score < 3) return false;
+        // 没有高特异文案、也没有明显的大 CTA 时，多半就是任务面板本身，不要 Back。
+        if (strongHits == 0 && !wideCta) return false;
         if (popupDismissCount >= 6) {
             AppState.log("疑似遮挡弹窗仍反复出现，但已达到本轮自动关闭上限；交给页面恢复流程处理");
             return false;
@@ -1783,7 +1802,10 @@ public class AutomationService extends Service {
         try {
             OcrEngine.Snapshot snap = ocr.captureNavigation();
             boolean hit = taskPanelVisibleInSnapshot(snap);
-            if (hit) AppState.log("OCR 已确认‘今日速赚/更多金币’等任务弹窗已打开");
+            if (hit) {
+                lastPanelOpenedAt = SystemClock.elapsedRealtime();
+                AppState.log("OCR 已确认‘今日速赚/更多金币’等任务弹窗已打开");
+            }
             return hit;
         } catch (Throwable e) {
             AppState.log("任务弹窗 OCR 确认失败: " + e.getMessage());
