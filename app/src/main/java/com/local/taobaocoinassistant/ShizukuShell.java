@@ -168,14 +168,26 @@ public final class ShizukuShell {
         }
     }
 
+    public static final class GestureResult {
+        public final boolean ok;
+        public final HumanMotion.GestureStats stats;
+        public final String detail;
+
+        GestureResult(boolean ok, HumanMotion.GestureStats stats, String detail) {
+            this.ok = ok;
+            this.stats = stats;
+            this.detail = detail == null ? "" : detail;
+        }
+    }
+
     /**
-     * 逐点注入一次手势。返回 true 表示走的是 injectInputEvent，false 表示需要调用方回退到 input 命令。
+     * 逐点注入一次手势。ok=false 表示调用方需要回退到 input 命令；stats 是 shell 侧实测的轨迹指标。
      */
-    public static boolean injectGesture(int type, float x1, float y1, float x2, float y2,
-                                        float halfW, float halfH, long seed) {
-        if (!hasPermission()) return false;
+    public static GestureResult injectGesture(int type, float x1, float y1, float x2, float y2,
+                                              float halfW, float halfH, long seed) {
+        if (!hasPermission()) return new GestureResult(false, null, "no permission");
         IBinder binder = awaitService(6000);
-        if (binder == null) return false;
+        if (binder == null) return new GestureResult(false, null, "service timeout");
 
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
@@ -188,16 +200,21 @@ public final class ShizukuShell {
             data.writeFloat(halfW);
             data.writeFloat(halfH);
             data.writeLong(seed);
-            if (!binder.transact(CoinUserService.TRANSACTION_INJECT, data, reply, 0)) return false;
+            if (!binder.transact(CoinUserService.TRANSACTION_INJECT, data, reply, 0)) {
+                return new GestureResult(false, null, "transact failed");
+            }
             reply.readException();
-            return reply.readInt() == 1;
+            boolean ok = reply.readInt() == 1;
+            String detail = reply.readString();
+            String encoded = reply.readString();
+            return new GestureResult(ok, HumanMotion.GestureStats.decode(encoded), detail);
         } catch (Throwable e) {
             // 与 exec() 保持一致：transact 抛异常大概率意味着 binder 已死，清缓存让下次重连。
             synchronized (LOCK) {
                 userServiceBinder = null;
                 binding = false;
             }
-            return false;
+            return new GestureResult(false, null, e.getClass().getSimpleName() + ": " + e.getMessage());
         } finally {
             data.recycle();
             reply.recycle();
