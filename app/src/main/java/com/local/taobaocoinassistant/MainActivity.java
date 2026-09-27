@@ -65,7 +65,8 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 8001);
         }
-        AppState.log("应用已打开。淘金币助手 v1.1 为纯 Shizuku + OCR，无需无障碍；首次使用请授权 Shizuku。");
+        AppState.log("应用已打开。淘金币助手 v1.2 为纯 Shizuku + OCR，无需无障碍；首次使用请授权 Shizuku。");
+        MotionAudit.setEnabled(AuditSettings.isEnabled(this));
         handler.post(ticker);
     }
 
@@ -216,6 +217,41 @@ public class MainActivity extends Activity {
         });
         overlayRow.addView(overlaySwitch);
         root.addView(overlayRow, overlayCardLp);
+
+        LinearLayout auditRow = cardLayout();
+        auditRow.setOrientation(LinearLayout.HORIZONTAL);
+        auditRow.setGravity(Gravity.CENTER_VERTICAL);
+        auditRow.setPadding(dp(14), dp(6), dp(14), dp(6));
+        auditRow.setBackground(cardBg(0xFFFFFFFF, 14, 0x11000000, 1));
+        LinearLayout.LayoutParams auditCardLp = new LinearLayout.LayoutParams(-1, -2);
+        auditCardLp.topMargin = dp(12);
+
+        LinearLayout auditInfo = new LinearLayout(this);
+        auditInfo.setOrientation(LinearLayout.VERTICAL);
+        auditInfo.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
+        TextView auditTitle = new TextView(this);
+        auditTitle.setText("拟人度自检（可选）");
+        auditTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        auditTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        auditTitle.setTextColor(0xFF111827);
+        auditInfo.addView(auditTitle);
+        TextView auditDesc = new TextView(this);
+        auditDesc.setText("记录每次手势的抖动/震颤/弧度/节奏，运行结束出一份报告。只统计本 App 自己发出的动作，不影响任务执行。");
+        auditDesc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        auditDesc.setTextColor(0xFF6B7280);
+        auditDesc.setPadding(0, dp(3), 0, 0);
+        auditInfo.addView(auditDesc);
+        auditRow.addView(auditInfo);
+
+        Switch auditSwitch = new Switch(this);
+        auditSwitch.setChecked(AuditSettings.isEnabled(this));
+        auditSwitch.setOnCheckedChangeListener((buttonView, checked) -> {
+            AuditSettings.setEnabled(this, checked);
+            MotionAudit.setEnabled(checked);
+            AppState.log(checked ? "已开启拟人度自检" : "已关闭拟人度自检");
+        });
+        auditRow.addView(auditSwitch);
+        root.addView(auditRow, auditCardLp);
 
         Button rules = ghostButton("任务规则设置（黑名单 / 跨应用 / 搜索 / 浏览）");
         rules.setOnClickListener(v -> showTaskRuleDialog());
