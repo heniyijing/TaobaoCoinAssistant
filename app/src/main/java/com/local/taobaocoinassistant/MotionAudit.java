@@ -256,7 +256,7 @@ public final class MotionAudit {
             swipes++;
             tremorSum += e.tremorPx;
             bowSum += e.bowRatio;
-            if (e.tremorPx < 0.35f) weakTremor++;
+            if (e.tremorPx < 0.05f) weakTremor++;
             if (e.bowRatio < 0.004f) flat++;
             if (e.peakPos < 0.2f || e.peakPos > 0.8f) oddPeak++;
         }
@@ -266,7 +266,9 @@ public final class MotionAudit {
             double oddRatio = (double) oddPeak / swipes;
             if (weakRatio > 0.3) {
                 penalty += 15 * weakRatio;
-                findings.add(String.format("%.0f%% 的滑动缺少高频震颤（均值 %.2fpx）", weakRatio * 100, tremorSum / swipes));
+                // 只抓"完全没有高频抖动"的情况：那意味着走了匀速直线（比如注入降级）。
+                // 数值大小本身会随滑动速度变化（快滑时真实加速度也会被算进来），不适合做梯度判断。
+                findings.add(String.format("%.0f%% 的滑动完全没有高频抖动（均值 %.2fpx）", weakRatio * 100, tremorSum / swipes));
             }
             if (flatRatio > 0.3) {
                 penalty += 15 * flatRatio;
