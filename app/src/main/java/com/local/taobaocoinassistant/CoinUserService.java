@@ -87,10 +87,12 @@ public final class CoinUserService extends Binder {
             long seed = data.readLong();
 
             String detail;
+            String statsEncoded = "";
             boolean ok;
             try {
                 HumanMotion.Point[] points;
-                if (type == GESTURE_TAP) {
+                boolean isTap = type == GESTURE_TAP;
+                if (isTap) {
                     points = HumanMotion.buildTap(x1, y1, halfW, halfH, new Random(seed));
                 } else {
                     points = HumanMotion.buildSwipe(x1, y1, x2, y2, Math.max(24f, halfW * 2f),
@@ -98,7 +100,10 @@ public final class CoinUserService extends Binder {
                                     ? HumanMotion.PROFILE_FLING : HumanMotion.PROFILE_FITTS,
                             new Random(seed));
                 }
-                ok = MotionInjector.inject(points, type == GESTURE_TAP);
+                HumanMotion.GestureStats st =
+                        HumanMotion.stats(points, isTap ? x1 : x1, isTap ? y1 : y1, isTap);
+                if (st != null) statsEncoded = st.encode();
+                ok = MotionInjector.inject(points, isTap);
                 detail = ok ? "ok" : MotionInjector.lastError();
             } catch (Throwable e) {
                 ok = false;
@@ -108,6 +113,7 @@ public final class CoinUserService extends Binder {
             reply.writeNoException();
             reply.writeInt(ok ? 1 : 0);
             reply.writeString(detail == null ? "" : detail);
+            reply.writeString(statsEncoded);
             return true;
         }
 
