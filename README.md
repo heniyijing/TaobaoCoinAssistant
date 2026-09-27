@@ -116,7 +116,7 @@ v1.2 在 Shizuku 的 shell 侧生成轨迹，然后**逐点注入**（`InputMana
 
 ## 构建
 
-- **云构建**：push 到 `master` 会自动触发 `.github/workflows/build-apk.yml`，也可以在 Actions 页手动 `Run workflow`；产物 `TaobaoCoinAssistant-debug-apks`，装 `app-arm64-v8a-debug.apk`。
+- **云构建**：push 到 `master` 会自动触发 `.github/workflows/build-apk.yml`，也可以在 Actions 页手动 `Run workflow`；产物只有一个，文件名带版本号，例如 `TaobaoCoinAssistant-v1.2.1-debug.apk`（arm64-v8a，现代安卓手机通用）。
   > fork 出来的仓库 GitHub Actions 默认关闭，需要先在 Actions 页点一次启用。
 - **本地**：Android Studio 打开项目 → Sync → `Build > Build APK(s)`，或 `gradle :app:assembleDebug`（JDK 17 + Gradle 8.13 + Android SDK 36）。
 
