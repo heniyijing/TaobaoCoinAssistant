@@ -14,14 +14,31 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android 16 SDK
-        run: yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      # android-actions/setup-android@v3 在新版 runner 上会失败，改为直接用 runner 预装的
+      # cmdline-tools（缺失时再下载），只装本项目需要的 platform 36 / build-tools 36。
+      - name: Install Android SDK
+        run: |
+          set -e
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            curl -sSL -o /tmp/cmdline.zip \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q /tmp/cmdline.zip -d "$ANDROID_HOME/cmdline-tools"
+            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          fi
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+
       - name: Build debug APKs
         run: gradle :app:assembleDebug
+
       - uses: actions/upload-artifact@v4
         with:
           name: TaobaoCoinAssistant-debug-apks
