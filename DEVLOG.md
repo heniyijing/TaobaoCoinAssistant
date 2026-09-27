@@ -4,6 +4,14 @@
 
 ---
 
+### 2026-09-27（三）构建产物收敛
+
+- 原来一次构建出 4 个 ABI 包（arm64-v8a / armeabi-v7a / x86 / x86_64），挑错就装不上。改为**只出 arm64-v8a**（现代安卓手机通用）。
+- 产物文件名带版本号：`TaobaoCoinAssistant-v1.2.1-debug.apk`，避免装错旧包。用 `androidComponents { onVariants { output.outputFileName.set(...) } }` 实现（AGP 8.11）。
+- 顺带清掉 `app/build.gradle` 里重复定义的两段 `splits` 块，并把 `versionName` 升到 1.2.1、`versionCode` 107（之前还写着 1.1）。
+
+---
+
 ## 2026-09-27（二）首次真机运行：任务面板被误判成弹窗，反复 Back 关掉
 
 ### 现象
