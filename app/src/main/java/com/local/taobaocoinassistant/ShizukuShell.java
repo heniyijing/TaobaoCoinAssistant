@@ -26,7 +26,7 @@ public final class ShizukuShell {
      * MotionInjector，以及被它们调用的 HumanMotion。
      * 否则手机上跑的还是旧进程里的旧代码（表现为"改了没生效"，而且不会有任何报错）。
      */
-    private static final int USER_SERVICE_VERSION = 5;
+    private static final int USER_SERVICE_VERSION = 6;
 
     private static final Shizuku.UserServiceArgs USER_SERVICE_ARGS =
             new Shizuku.UserServiceArgs(new ComponentName(
@@ -193,6 +193,15 @@ public final class ShizukuShell {
      */
     public static GestureResult injectGesture(int type, float x1, float y1, float x2, float y2,
                                               float halfW, float halfH, long seed) {
+        return injectGesture(type, x1, y1, x2, y2, halfW, halfH, seed, 0L);
+    }
+
+    /**
+     * @param forcedDurationMs 大于 0 时用指定时长（慢速浏览），否则由 shell 侧的 Fitts 模型决定
+     */
+    public static GestureResult injectGesture(int type, float x1, float y1, float x2, float y2,
+                                              float halfW, float halfH, long seed,
+                                              long forcedDurationMs) {
         if (!hasPermission()) return new GestureResult(false, null, "no permission");
         IBinder binder = awaitService(6000);
         if (binder == null) return new GestureResult(false, null, "service timeout");
@@ -208,6 +217,7 @@ public final class ShizukuShell {
             data.writeFloat(halfW);
             data.writeFloat(halfH);
             data.writeLong(seed);
+            data.writeLong(forcedDurationMs);
             if (!binder.transact(CoinUserService.TRANSACTION_INJECT, data, reply, 0)) {
                 return new GestureResult(false, null, "transact failed");
             }
