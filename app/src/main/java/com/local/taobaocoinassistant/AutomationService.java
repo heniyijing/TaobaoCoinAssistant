@@ -1716,17 +1716,24 @@ public class AutomationService extends Service {
         int score = 0;
         int strongHits = 0;
 
-        // 任务面板刚打开的一小段时间内，页面还在渲染，此时任何判定都不可靠。
-        // 之前就是在这里把正常任务面板误判成遮挡弹窗，Back 把面板关掉，导致反复重进。
+        // 任务面板刚打开的一段时间内，页面还在渲染，此时任何判定都不可靠。
         if (lastPanelOpenedAt != 0L
-                && SystemClock.elapsedRealtime() - lastPanelOpenedAt < 2500L) {
+                && SystemClock.elapsedRealtime() - lastPanelOpenedAt < 6000L) {
+            return false;
+        }
+
+        // 判据反转（关键）：能清楚看到可信任务列表——多个带进度任务 + 多个动作按钮——
+        // 就说明页面没有被覆盖式弹窗挡住。旧逻辑把"能看到任务列表"当成弹窗的背景证据，
+        // 方向正好相反，于是每次打开面板都被判成弹窗并 Back 掉，陷入死循环。
+        if (TaskParser.isTrustedTaskContext(snap.rows, snap.height)
+                && TaskParser.countActionRows(snap.rows) >= 2) {
             return false;
         }
 
         // 高特异文案：这些内容通常只会出现在覆盖式促销/引导弹窗中。
+        // 注意不要放"金币额外抵扣"这类词——淘金币页面本身到处都是这种文案，放了必然误伤。
         String[] strong = new String[]{
-                "已尝试添加组件", "再次添加", "前往桌面", "添加失败",
-                "一键享受金币额外抵扣", "金币额外抵扣", "你加购的",
+                "已尝试添加组件", "再次添加", "前往桌面", "添加失败", "你加购的",
                 "出行玩乐", "订票订酒店", "闪购福利"
         };
         for (String k : strong) {
@@ -1768,8 +1775,12 @@ public class AutomationService extends Service {
         }
         if (backgroundContext && centeredCta) score += 2;
 
-        if (score < 3) return false;
-        // 没有高特异文案、也没有明显的大 CTA 时，多半就是任务面板本身，不要 Back。
+        // 淘金币首页本来就是正常页面（不是弹窗），只有出现两个以上强文案才可能是真的覆盖式弹窗。
+        if (looksLikeCoinHomeSnapshot(snap) && strongHits < 2) return false;
+
+        if (score < 4) return false;
+        // 必须有弹窗自身的证据（高特异文案，或超过 0.45 屏宽的大 CTA）；
+        // 只靠"背景是任务页 + 中间有按钮"不能判定，那两条对正常页面恒成立。
         if (strongHits == 0 && !wideCta) return false;
         if (popupDismissCount >= 6) {
             AppState.log("疑似遮挡弹窗仍反复出现，但已达到本轮自动关闭上限；交给页面恢复流程处理");
