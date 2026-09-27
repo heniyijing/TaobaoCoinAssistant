@@ -2,6 +2,9 @@ plugins {
     id 'com.android.application'
 }
 
+// 产物文件名要用版本号，这里统一定义，defaultConfig 和重命名共用同一份值。
+def appVersionName = '1.2.1'
+
 android {
     namespace 'com.local.taobaocoinassistant'
     compileSdk 36
@@ -11,7 +14,7 @@ android {
         minSdk 30
         targetSdk 36
         versionCode 107
-        versionName '1.2.1'
+        versionName appVersionName
     }
 
     // 只出 arm64-v8a：现代安卓手机都是这个架构，其余三种装不上又容易挑错。
@@ -45,9 +48,9 @@ android {
 // 产物带上版本号，避免装错旧包：TaobaoCoinAssistant-v1.2.1-arm64-v8a-debug.apk
 androidComponents {
     onVariants(selector().all()) { variant ->
-        def vn = variant.versionName.getOrNull() ?: "unknown"
+        // 注意：AGP 8.11 的 ApplicationVariant 上没有 versionName 属性，用上面的常量。
         variant.outputs.each { output ->
-            output.outputFileName.set("TaobaoCoinAssistant-v${vn}-${variant.name}.apk")
+            output.outputFileName.set("TaobaoCoinAssistant-v${appVersionName}-${variant.name}.apk")
         }
     }
 }
