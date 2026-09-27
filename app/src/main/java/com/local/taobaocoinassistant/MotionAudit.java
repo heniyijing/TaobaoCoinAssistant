@@ -175,8 +175,11 @@ public final class MotionAudit {
         }
         List<String> findings = new ArrayList<>();
         if (snapshot.size() < 5) {
-            findings.add("样本不足（<5 次动作），无法评估");
-            return new Score(-1, "未知", findings, snapshot.size());
+            findings.add(String.format("样本不足（%d 次动作，至少需要 5 次），无法评估", snapshot.size()));
+            Score low = new Score(-1, "未知", findings, snapshot.size());
+            low.totalActions = totalCount;
+            low.fallbackActions = fallbackCount;
+            return low;
         }
 
         int n = snapshot.size();
@@ -295,7 +298,9 @@ public final class MotionAudit {
 
     /** 供 UI / 日志使用的一行摘要。 */
     public static String summary(Score s) {
-        if (s.score < 0) return "拟人度自检：样本不足";
+        if (s.score < 0) {
+            return String.format("拟人度自检：样本不足（%d 次动作，至少需 5 次）", s.samples);
+        }
         return String.format("拟人度 %d/100（机器特征%s）· 样本 %d 次", s.score, s.level, s.samples);
     }
 
