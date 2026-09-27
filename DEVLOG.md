@@ -9,6 +9,15 @@
 - 原来一次构建出 4 个 ABI 包（arm64-v8a / armeabi-v7a / x86 / x86_64），挑错就装不上。改为**只出 arm64-v8a**（现代安卓手机通用）。
 - 产物文件名带版本号：`TaobaoCoinAssistant-v1.2.1-debug.apk`，避免装错旧包。用 `androidComponents { onVariants { output.outputFileName.set(...) } }` 实现（AGP 8.11）。
 - 顺带清掉 `app/build.gradle` 里重复定义的两段 `splits` 块，并把 `versionName` 升到 1.2.1、`versionCode` 107（之前还写着 1.1）。
+- 产物从 38.9MB（4 个包）降到 **9.97MB（1 个包）**，文件名 `TaobaoCoinAssistant-v1.2.1-debug.apk`（构建日志已确认）。
+
+**踩坑**：第一次重命名写成 `variant.versionName.getOrNull()`，构建直接失败——
+`Could not get unknown property 'versionName' for ApplicationVariantImpl`。
+**AGP 8.11 的 `ApplicationVariant` 上没有 `versionName` 属性**。改成在脚本顶层定义
+`def appVersionName = '1.2.1'`，`defaultConfig` 和重命名共用这个常量，不依赖 variant API。
+
+**教训**：凡是改 Gradle 构建脚本，先想清楚目标 AGP 版本的 API 是否真的存在；
+拿不准就退回用普通变量，不要赌 `variant.*` 的属性名。
 
 ---
 
