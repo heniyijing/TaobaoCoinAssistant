@@ -237,6 +237,8 @@ public class AutomationService extends Service {
     private void runAutomation() {
         NotificationHelper.notify(this, "淘金币助手", "任务开始执行", 1001);
         AppState.log("开始执行：单线程状态机，不启用后台自动点击");
+        MotionAudit.setEnabled(AuditSettings.isEnabled(this));
+        MotionAudit.reset();
         try {
             if (!ShizukuShell.hasPermission()) {
                 throw new IllegalStateException("Shizuku 未连接或未授权");
@@ -256,6 +258,7 @@ public class AutomationService extends Service {
             AppState.log("异常: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             NotificationHelper.notify(this, "淘金币助手", "任务异常结束，请查看日志", 1003);
         } finally {
+            if (MotionAudit.isEnabled() && MotionAudit.sampleCount() > 0) AppState.log(MotionAudit.report());
             AppState.running = false;
             automationJobActive = false;
             refreshForegroundNotification();
@@ -1601,26 +1604,44 @@ public class AutomationService extends Service {
      */
     private void humanTap(int x, int y, int halfW, int halfH) throws Exception {
         sleep(HumanMotion.microDelayMs(150, random));
-        boolean ok = ShizukuShell.injectGesture(
+        long gap = MotionAudit.beginAction();
+        ShizukuShell.GestureResult res = ShizukuShell.injectGesture(
                 CoinUserService.GESTURE_TAP, x, y, x, y, halfW, halfH, random.nextLong());
-        if (!ok) {
+        if (!res.ok) {
             noteInjectFallback();
             ShizukuShell.Result r = ShizukuShell.exec("input tap " + x + " " + y);
             if (!r.ok()) throw new IllegalStateException("input tap 失败: " + r.output);
         }
+        MotionAudit.recordTap(gap, x, y, res.ok, res.stats);
+        maybeAudit();
         sleep(HumanMotion.microDelayMs(220, random));
     }
 
     /** 人类化滑动：贝塞尔弧线 + Fitts/fling 速度剖面 + 8~12Hz 震颤，逐点注入。 */
     private void humanSwipe(int x1, int y1, int x2, int y2, int targetW, boolean fling) throws Exception {
-        boolean ok = ShizukuShell.injectGesture(
+        long gap = MotionAudit.beginAction();
+        ShizukuShell.GestureResult res = ShizukuShell.injectGesture(
                 fling ? CoinUserService.GESTURE_SWIPE_FLING : CoinUserService.GESTURE_SWIPE_FITTS,
                 x1, y1, x2, y2, targetW * 0.5f, targetW * 0.5f, random.nextLong());
-        if (ok) return;
-        noteInjectFallback();
-        ShizukuShell.Result r = ShizukuShell.exec(
-                "input swipe " + x1 + " " + y1 + " " + x2 + " " + y2 + " " + (fling ? 480 : 700));
-        if (!r.ok()) throw new IllegalStateException("滑动失败: " + r.output);
+        if (!res.ok) {
+            noteInjectFallback();
+            ShizukuShell.Result r = ShizukuShell.exec(
+                    "input swipe " + x1 + " " + y1 + " " + x2 + " " + y2 + " " + (fling ? 480 : 700));
+            if (!r.ok()) throw new IllegalStateException("滑动失败: " + r.output);
+        }
+        MotionAudit.recordSwipe(gap, x1, y1, res.ok, res.stats);
+        maybeAudit();
+    }
+
+    /** 每满 25 次动作打一份自检简报，跑完再出完整报告。 */
+    private void maybeAudit() {
+        if (!MotionAudit.shouldReport()) return;
+        MotionAudit.Score s = MotionAudit.evaluate();
+        AppState.log("[自检] " + MotionAudit.summary(s));
+        if (!s.lowRisk()) {
+            for (String f : s.findings) AppState.log("[自检] " + f);
+        }
+        MotionAudit.markReported();
     }
 
     private void shellTap(int x, int y) throws Exception {
