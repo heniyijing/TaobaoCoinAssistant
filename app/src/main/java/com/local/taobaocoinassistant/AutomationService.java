@@ -64,6 +64,8 @@ public class AutomationService extends Service {
     private boolean coinHomeGeometryFallbackUsed = false;
     // v1.1: generic modal/ad obstruction recovery. Back is safer than tapping an unknown X.
     private int popupDismissCount = 0;
+    /** 下一次"间歇浏览"的触发点（完成多少个任务之后），每次触发后按 5~8 重新排。 */
+    private int nextBreakAt = 5;
     /** 任务面板刚确认打开的时间戳；这段时间内不做弹窗判定，避免把面板自己当成弹窗。 */
     private long lastPanelOpenedAt = 0L;
 
@@ -241,6 +243,7 @@ public class AutomationService extends Service {
         AppState.log("开始执行：单线程状态机，不启用后台自动点击");
         MotionAudit.setEnabled(AuditSettings.isEnabled(this));
         MotionAudit.reset();
+        nextBreakAt = 5 + random.nextInt(4);   // 第一轮间歇浏览安排在 5~8 个任务之后
         try {
             if (!ShizukuShell.hasPermission()) {
                 throw new IllegalStateException("Shizuku 未连接或未授权");
@@ -391,6 +394,11 @@ public class AutomationService extends Service {
                     long rest = 3000L + random.nextInt(9000);
                     AppState.log("随机停顿约 " + (rest / 1000) + " 秒");
                     sleep(rest);
+                }
+                // 每 5~8 个任务穿插一次间歇浏览（点个商品看看再回来）。
+                if (!stopRequested && executedCount >= nextBreakAt) {
+                    nextBreakAt = executedCount + 5 + random.nextInt(4);
+                    takeBreakBrowsing();
                 }
                 continue;
             }
@@ -2029,6 +2037,132 @@ public class AutomationService extends Service {
             }
         } catch (Throwable ignored) {}
         return false;
+    }
+
+    /**
+     * 慢速浏览滑动：时长由调用方指定（1~2 秒），比普通的 fling 慢得多，像在认真看内容。
+     */
+    private void humanSwipeSlow(int x1, int y1, int x2, int y2, int targetW, long durationMs)
+            throws Exception {
+        long gap = MotionAudit.beginAction();
+        ShizukuShell.GestureResult res = ShizukuShell.injectGesture(
+                CoinUserService.GESTURE_SWIPE_FITTS, x1, y1, x2, y2,
+                targetW * 0.5f, targetW * 0.5f, random.nextLong(), durationMs);
+        if (!res.ok) {
+            noteInjectFallback();
+            ShizukuShell.Result r = ShizukuShell.exec(
+                    "input swipe " + x1 + " " + y1 + " " + x2 + " " + y2 + " " + durationMs);
+            if (!r.ok()) throw new IllegalStateException("慢速滑动失败: " + r.output);
+        }
+        MotionAudit.recordSwipe(gap, x1, y1, res.ok, res.stats);
+        maybeAudit();
+    }
+
+    /**
+     * 间歇浏览（摸鱼）：像真人一样点开一个感兴趣的商品看看，再回到任务列表。
+     *
+     * 流程：回首页 → 随机位置点开一个商品 → 看商品图 → 逐段往下看详情/尺码/上身效果
+     * （中间随机"犹豫"往回翻）→ 退出。点哪里、看几段、每段滑多久、停多久全部随机，
+     * 目的是别让整段操作看起来只有"任务-任务-任务"。
+     */
+    private void takeBreakBrowsing() throws Exception {
+        AppState.status = "间歇浏览";
+        AppState.log("间歇浏览：逛一个商品");
+
+        // 1) 商品推荐区在淘金币首页，先回到首页
+        for (int i = 0; i < 3 && !stopRequested; i++) {
+            if (isCoinHomeVisibleForNavigation()) break;
+            shellBack();
+            sleep(1100);
+        }
+        if (stopRequested) return;
+
+        // 2) 点开一个商品（位置随机）
+        OcrEngine.Snapshot snap = ocr.capture();
+        if (!tapRandomProduct(snap)) {
+            AppState.log("间歇浏览：没找到可点区域，本次跳过");
+            return;
+        }
+        sleep(1500 + random.nextInt(1200));
+
+        // 3) 像真的在挑东西：先看主图，再一段段往下看详情/尺码/上身效果，中间会犹豫往回翻
+        long lookMainImage = 1500L + random.nextInt(1501);          // 1.5~3 秒看主图
+        AppState.log("间歇浏览：看商品图约 " + (lookMainImage / 1000) + " 秒");
+        sleep(lookMainImage);
+
+        String[] stages = new String[]{"商品详情", "尺码说明", "上身效果", "买家秀", "评价"};
+        int steps = 2 + random.nextInt(3);                          // 2~4 段
+        for (int i = 0; i < steps && !stopRequested; i++) {
+            boolean lookBack = i > 0 && random.nextDouble() < 0.3d;  // 犹豫：往回翻一点
+            int w = snap.width;
+            int h = snap.height;
+            int x1 = randomBetween(Math.max(40, w / 5), Math.max(60, w * 4 / 5));
+            int x2 = x1 + randomBetween(-40, 40);
+            int y1;
+            int y2;
+            if (lookBack) {
+                // 手指向下、内容往回翻，幅度小
+                y1 = randomBetween((int) (h * 0.30f), (int) (h * 0.50f));
+                y2 = Math.min((int) (h * 0.72f), y1 + randomBetween(180, 380));
+            } else {
+                // 手指向上、内容继续往下看
+                y1 = randomBetween((int) (h * 0.55f), (int) (h * 0.80f));
+                y2 = randomBetween((int) (h * 0.18f), (int) (h * 0.42f));
+            }
+            humanSwipeSlow(x1, y1, x2, y2, (int) (w * 0.6f), 1000L + random.nextInt(1001));
+
+            long dwell = 2000L + random.nextInt(2001);               // 2~4 秒
+            AppState.log("间歇浏览：看" + stages[random.nextInt(stages.length)]
+                    + "约 " + (dwell / 1000) + " 秒" + (lookBack ? "（犹豫，往回翻了一下）" : ""));
+            sleep(dwell);
+        }
+
+        // 4) 退出商品页，回任务列表
+        if (!stopRequested) {
+            shellBack();
+            sleep(900 + random.nextInt(700));
+            if (!enterTaskList(true)) {
+                AppState.log("间歇浏览后恢复任务列表失败");
+            } else {
+                AppState.log("间歇浏览结束，已回到任务列表");
+            }
+        }
+        if (!stopRequested) AppState.status = "识别任务中";
+    }
+
+    /** 在当前画面找一个商品点开。优先价格行附近，否则屏幕中下部随机位置。 */
+    private boolean tapRandomProduct(OcrEngine.Snapshot snap) {
+        if (snap == null) return false;
+        List<OcrEngine.OcrRow> priceRows = new ArrayList<>();
+        for (OcrEngine.OcrRow row : snap.rows) {
+            String t = row.text;
+            if (t == null) continue;
+            if (t.contains("¥") || t.contains("￥") || t.contains("折")) {
+                int cy = row.bounds.centerY();
+                // 避开顶部导航和底部Tab
+                if (cy > snap.height * 0.30f && cy < snap.height * 0.92f) priceRows.add(row);
+            }
+        }
+        int x;
+        int y;
+        if (!priceRows.isEmpty()) {
+            OcrEngine.OcrRow pick = priceRows.get(random.nextInt(priceRows.size()));
+            x = pick.bounds.centerX() + randomBetween(-30, 30);
+            y = pick.bounds.centerY() + randomBetween(-26, 26);
+        } else {
+            x = randomBetween((int) (snap.width * 0.18f), (int) (snap.width * 0.82f));
+            y = randomBetween((int) (snap.height * 0.45f), (int) (snap.height * 0.85f));
+        }
+        x = Math.max(20, Math.min(snap.width - 20, x));
+        y = Math.max(80, Math.min(snap.height - 60, y));
+        try {
+            shellTap(x, y);
+        } catch (Exception e) {
+            AppState.log("间歇浏览：点击商品失败 " + e.getMessage());
+            return false;
+        }
+        AppState.log("间歇浏览：点击商品 (" + x + ", " + y + ")");
+        return true;
     }
 
     private void shellBack() throws Exception {
