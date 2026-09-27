@@ -22,10 +22,11 @@ public final class ShizukuShell {
 
     /**
      * 注意：Shizuku 按 version 决定是否复用已启动的 UserService 进程。
-     * **只要改了 CoinUserService / MotionInjector 的代码，就必须把这个数字 +1**，
-     * 否则手机上跑的还是旧进程里的旧代码（表现为"改了没生效"）。
+     * **只要改了跑在 shell 侧的代码，就必须把这个数字 +1**——包括 CoinUserService、
+     * MotionInjector，以及被它们调用的 HumanMotion。
+     * 否则手机上跑的还是旧进程里的旧代码（表现为"改了没生效"，而且不会有任何报错）。
      */
-    private static final int USER_SERVICE_VERSION = 4;
+    private static final int USER_SERVICE_VERSION = 5;
 
     private static final Shizuku.UserServiceArgs USER_SERVICE_ARGS =
             new Shizuku.UserServiceArgs(new ComponentName(
