@@ -865,6 +865,16 @@ public class AutomationService extends Service {
         }
 
         if (first != null) {
+            // 双11改版：优先尝试右侧“赚能量”按钮，点击后弹出任务弹窗
+            int[] energy = findEnergyButtonVisualPoint(first);
+            if (energy != null) {
+                shellTap(energy[0], energy[1]);
+                AppState.log("通过单帧 OCR 点击双11‘赚能量’: (" + energy[0] + ", " + energy[1] + ")");
+                sleep(1500);
+                if (isTaskPanelVisibleForNavigation()) return ensureTaskListExpanded();
+            }
+
+            // 旧版：每日首次签到领金币
             int[] sign = findOcrTextCenter(first, "签到领金币");
             if (sign == null) sign = findOcrTextCenter(first, "签到领淘金币");
             if (sign != null) {
@@ -876,6 +886,7 @@ public class AutomationService extends Service {
                 return waitAndOpenMoreAfterDailySign();
             }
 
+            // 旧版：中央“赚更多金币”按钮
             int[] more = findMoreCoinsVisualPoint(first);
             int score = coinHomeEvidenceScore(first);
             if (more == null) more = findCoinHomeCenterActionFallback(first, score);
@@ -983,6 +994,13 @@ public class AutomationService extends Service {
                 sleep(800);
                 return false;
             }
+            // 双11改版：优先尝试右侧“赚能量”
+            int[] energy = findEnergyButtonVisualPoint(snap);
+            if (energy != null) {
+                shellTap(energy[0], energy[1]);
+                AppState.log("通过 OCR 点击双11‘赚能量’: (" + energy[0] + ", " + energy[1] + ")");
+                return true;
+            }
             int[] p = findMoreCoinsVisualPoint(snap);
             if (p != null) {
                 shellTap(p[0], p[1]);
@@ -1046,6 +1064,33 @@ public class AutomationService extends Service {
     }
 
     /**
+     * 双11改版：从 OCR 行中寻找右侧“赚能量”按钮。
+     * 按钮在淘金币首页右侧黑色区域，约 y=0.36~0.50，文字为“赚能量”。
+     * 允许“赚”和“能量”被 ML Kit 拆分到不同行时的模糊匹配。
+     */
+    private int[] findEnergyButtonVisualPoint(OcrEngine.Snapshot snap) {
+        if (snap == null) return null;
+        int minY = (int) (snap.height * 0.34f);
+        int maxY = (int) (snap.height * 0.52f);
+        for (OcrEngine.OcrRow row : snap.rows) {
+            int y = row.bounds.centerY();
+            if (y < minY || y > maxY) continue;
+            String text = normalizeOcr(row.text);
+            boolean exact = text.contains("赚能量");
+            boolean fuzzy = text.contains("能量") && (text.contains("赚") || text.length() <= 6);
+            if (!exact && !fuzzy) continue;
+            int x = row.bounds.centerX();
+            // “赚能量”在屏幕右侧，如果 OCR 把整行合并了，取右侧 1/3
+            if (row.bounds.width() > snap.width * 0.5f) {
+                x = (int) (snap.width * 0.82f);
+            }
+            x = Math.max(24, Math.min(snap.width - 24, x));
+            return new int[]{x, y};
+        }
+        return null;
+    }
+
+    /**
      * 只根据“淘金币首页”独有的多个视觉文字共同打分。
      * 单独出现“淘金币”或“搜索”绝不会触发几何兜底。
      */
@@ -1059,6 +1104,12 @@ public class AutomationService extends Service {
         if (all.contains("找好友")) score += 1;
         if (all.contains("快速赚") || all.contains("明天可领") || all.contains("后天")) score += 1;
         if (all.contains("铂金会员") || all.contains("足迹加抵")) score += 1;
+        // 双11改版首页特征
+        if (all.contains("升级赛车") || all.contains("升级赛车拿钱")) score += 3;
+        if (all.contains("赚能量")) score += 2;
+        if (all.contains("涂装升级") || all.contains("尾翼") || all.contains("车轮")) score += 1;
+        if (all.contains("淘金币双11") || (all.contains("淘金币") && all.contains("双11"))) score += 2;
+        if (all.contains("不服碰碰车") || all.contains("Lv.3") || all.contains("Lv3")) score += 1;
         return score;
     }
 
@@ -1073,7 +1124,8 @@ public class AutomationService extends Service {
         // 如果 OCR 已经读到任务弹窗特征，即使 isTaskPanelVisibleForNavigation() 刚才因为
         // 截图时序没确认成功，也绝不再按首页中央坐标。
         if (all.contains("今日速赚") || all.contains("更多金币等你赚")
-                || all.contains("完成下方任务得额外金币") || all.contains("快速赚奖励已拿完")) {
+                || all.contains("完成下方任务得额外金币") || all.contains("快速赚奖励已拿完")
+                || all.contains("做任务赚能量") || all.contains("累计任务奖励")) {
             return null;
         }
         int minY = (int) (snap.height * 0.18f);
@@ -1146,8 +1198,10 @@ public class AutomationService extends Service {
     private boolean looksLikeCoinHomeSnapshot(OcrEngine.Snapshot snap) {
         if (snap == null) return false;
         if (findMoreCoinsVisualPoint(snap) != null) return true;
+        if (findEnergyButtonVisualPoint(snap) != null) return true;
         String all = normalizeOcr(snap.allText());
         if (all.contains("签到领金币") || all.contains("签到领淘金币")) return true;
+        if (all.contains("升级赛车拿钱") || all.contains("升级赛车")) return true;
         return coinHomeEvidenceScore(snap) >= COIN_HOME_EVIDENCE_THRESHOLD;
     }
 
@@ -1875,13 +1929,18 @@ public class AutomationService extends Service {
         boolean rewardHeader = all.contains("完成下方任务得额外金币")
                 || (all.contains("完成下方任务") && all.contains("金币"));
         boolean classic = all.contains("赚金币抵钱") || all.contains("今日累计奖励");
+        // 双11改版：任务弹窗标题与顶部进度区
+        boolean double11 = all.contains("做任务赚能量")
+                || all.contains("累计任务奖励")
+                || (all.contains("当前进度") && all.contains("去完成"));
         return quickEarn
                 || rewardHeader
                 || all.contains("更多金币等你赚")
                 || all.contains("今日快速赚奖励已拿完")
                 || all.contains("快速赚奖励已拿完")
                 || (all.contains("记得明天再来") && all.contains("展开"))
-                || classic;
+                || classic
+                || double11;
     }
 
     /**
