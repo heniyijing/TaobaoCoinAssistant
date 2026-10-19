@@ -25,7 +25,8 @@ public final class TaskParser {
 
     private static final List<String> PANEL_MARKERS = Arrays.asList(
             "今日速赚", "更多金币等你赚", "更多专享福利", "完成下方任务得额外金币",
-            "任务到访得金币", "每日来任务面板", "赚金币抵钱"
+            "任务到访得金币", "每日来任务面板", "赚金币抵钱",
+            "做任务赚能量", "累计任务奖励"
     );
 
     private static final List<String> PREFERRED = Arrays.asList(
@@ -121,7 +122,9 @@ public final class TaskParser {
         boolean panelMarker = containsAnyRaw(all, PANEL_MARKERS);
         boolean strongSection = all.contains(normalize("更多专享福利"))
                 || all.contains(normalize("完成下方任务得额外金币"))
-                || all.contains(normalize("今日速赚"));
+                || all.contains(normalize("今日速赚"))
+                || all.contains(normalize("做任务赚能量"))
+                || all.contains(normalize("累计任务奖励"));
         boolean bottomMarker = all.contains(normalize("收起更多任务"))
                 || all.contains(normalize("以上金币额均为最高可得"))
                 || all.contains(normalize("以实际可得数为准"));
@@ -147,6 +150,11 @@ public final class TaskParser {
         // “更多金币等你赚”是当前版本折叠态卡片的稳定锚点。只要它仍可见，
         // 就不能因为上方今日速赚已经有任务标题而把页面误判为“已展开”。
         if (all.contains(normalize("更多金币等你赚"))) return false;
+
+        // 双11改版：任务弹窗一打开就是完整列表，无折叠卡。
+        boolean double11Panel = all.contains(normalize("做任务赚能量"))
+                || (all.contains(normalize("累计任务奖励")) && all.contains(normalize("当前进度")));
+        if (double11Panel) return true;
 
         boolean rewardHeader = all.contains(normalize("完成下方任务得额外金币"))
                 || (all.contains(normalize("完成下方任务")) && all.contains(normalize("金币")));
